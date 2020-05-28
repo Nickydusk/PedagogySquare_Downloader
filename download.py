@@ -4,9 +4,7 @@
 
 @Author：zhuxinhao00@gmail.com
 
-@Create date: 2020/03/31
-
-@Modified date: 2020/04/16
+@Create date: 2020/3/31
 
 @description: A script to download file automatically from teaching.applysquare.com
 """
@@ -21,6 +19,7 @@ from contextlib import closing
 import requests
 from selenium import webdriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+import pandas as pd
 
 # Function dealing with illegal characters of windows filename
 def filename_filter(name:str):
@@ -48,6 +47,10 @@ def construct_attchment_list(driver, token, pid, uid, cid):
         current_page += 1
     return attachment_list
 
+# change into download directory
+home_dir = r"D:\OneDrive - smail.nju.edu.cn\desktop\home"
+os.chdir(home_dir)
+
 # Load config from config.json
 with open('config.json', 'r') as f:
     config = json.loads(f.read())
@@ -60,6 +63,15 @@ download_all_courses = config.get('download_all_courses')
 ext_list = config.get('ext_list')
 ext_expel_list = config.get('ext_expel_list')
 cid_list = config.get('cid_list')
+
+
+
+# get downloaded list
+if os.path.exists("./list.csv"):
+    files = pd.read_csv("./list.csv",header=None,encoding="gbk").values[:,0].tolist()
+else:
+    files = list()
+
 
 # auto_restart = True
 # speed_threshold = 50 * 1024
@@ -87,7 +99,7 @@ time.sleep(1)
 driver.find_element_by_xpath(r"/html/body/div[2]/div/div[2]/div/div/div/div/div[2]/div/div/div[1]/input").send_keys(user_name) # Send username
 driver.find_element_by_xpath(r'//*[@id="id_login_password"]').send_keys(user_passwd) # Send password
 driver.find_element_by_xpath(r'//*[@id="id_login_button"]').click() # Submit
-time.sleep(0.5)
+print("Login Successfully!")
 
 # Dealing with student-teacher selection
 try:
@@ -96,23 +108,22 @@ try:
 except Exception:
     pass
 
-time.sleep(0.5)
-if (driver.current_url == r'https://teaching.applysquare.com/S/Index/index'):
-    print("Login Successfully!")
-else:
-    print("Login Error --- Please check your username & password")
-    print("Disable headless mode for detailed information")
 
 # Get token for authorization
+# nnn = 0
 token = None
 while not token:
+    # print('fuck')
     for entry in driver.get_log('performance'):
+        # nnn = nnn+1
+        # print(nnn) 
         match_obj = re.search(token_pattern, entry.get('message'))
         if match_obj:
             temp_url = match_obj.group(1)
             token = re.search(r'token/(.*?)\?', temp_url).group(1)
             uid = re.search(r'uid=(.*?)', temp_url).group(1)
             break
+
 
 cid2name_dict = dict()
 course_info_url = course_info_url_fmt.format(token, uid)
@@ -128,6 +139,7 @@ if download_all_courses:
 for cid in cid_list:
     cid = str(cid) # Prevent bug caused by wrong type of cid
     course_name = filename_filter(cid2name_dict[cid])
+
     print("\nDownloading files of course {}".format(course_name))
 
     # Create dir for this course
@@ -157,11 +169,13 @@ for cid in cid_list:
         if (ext == 'dir') or (ext in ext_expel_list) or (not download_all_ext and ext not in ext_list):
             continue
 
-        if (ext in entry.get('title')):
-            filename = filename_filter(entry.get('title'))
-        else:
-            filename = filename_filter("{}.{}".format(entry.get('title'), ext))
-
+        filename = filename_filter("{}.{}".format(entry.get('title'), ext))
+        
+        if course_name+':'+filename in files:
+            print("File \"{}\" is up-to-date".format(filename))
+            continue
+        files.append(course_name+':'+filename)
+        
         filesize = entry.get('size')
 
         with closing(requests.get(entry.get('path').replace('amp;', ''), stream=True)) as res:
@@ -208,4 +222,6 @@ for cid in cid_list:
 
     os.chdir(r'../') # Switch directory
 
+files = pd.DataFrame(files)
+files.to_csv("./list.csv",header=False,index=False,encoding="gbk")
 print("Done!")
